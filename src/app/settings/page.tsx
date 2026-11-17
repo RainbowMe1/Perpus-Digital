@@ -9,6 +9,7 @@ import { Tabs } from '@/components/ui/tabs';
 import { Avatar } from '@/components/ui/avatar';
 import { useAppState, useRole, useToast } from '@/lib/context';
 import { LibrarySettings } from '@/lib/types';
+import { getSupabaseClient } from '@/lib/supabase';
 import { Building2, BookOpen, Bell, Database, Download, ImagePlus, Save, UserRound } from 'lucide-react';
 
 const defaultPreferences: Record<string, boolean> = {
@@ -40,6 +41,9 @@ export default function SettingsPage() {
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string>();
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   useEffect(() => {
     setFullName(currentUser?.name ?? '');
@@ -97,6 +101,30 @@ export default function SettingsPage() {
       toast('error', 'Gagal memperbarui foto profil', error instanceof Error ? error.message : 'Coba lagi.');
     } finally {
       setAvatarSaving(false);
+    }
+  };
+
+  const savePassword = async () => {
+    if (newPassword.length < 8) {
+      toast('error', 'Kata sandi belum valid', 'Gunakan minimal 8 karakter.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast('error', 'Konfirmasi tidak cocok', 'Pastikan kedua kata sandi sama.');
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const { error } = await getSupabaseClient().auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setNewPassword('');
+      setConfirmPassword('');
+      toast('success', 'Kata sandi berhasil diubah');
+    } catch (error) {
+      toast('error', 'Gagal mengubah kata sandi', error instanceof Error ? error.message : 'Coba lagi.');
+    } finally {
+      setPasswordSaving(false);
     }
   };
 
@@ -183,6 +211,28 @@ export default function SettingsPage() {
                 <Input label="Kelas / Departemen" required value={classOrDepartment} onChange={event => setClassOrDepartment(event.target.value)} />
               </div>
               <Button loading={saving} onClick={() => void saveAccount()} icon={<Save className="w-4 h-4" />}>Simpan Profil</Button>
+              <div className="space-y-4 border-t border-slate-200 pt-5">
+                <h3 className="font-semibold text-slate-900">Ganti kata sandi</h3>
+                <Input
+                  label="Kata sandi baru (minimal 8 karakter)"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                  value={newPassword}
+                  onChange={event => setNewPassword(event.target.value)}
+                />
+                <Input
+                  label="Ulangi kata sandi baru"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                  value={confirmPassword}
+                  onChange={event => setConfirmPassword(event.target.value)}
+                />
+                <Button loading={passwordSaving} onClick={() => void savePassword()}>Simpan Kata Sandi</Button>
+              </div>
             </div>
           )}
 

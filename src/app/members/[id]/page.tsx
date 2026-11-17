@@ -53,7 +53,7 @@ export default function MemberDetailPage() {
         {/* Profile Card */}
         <Card className="lg:col-span-1">
           <div className="text-center">
-            <Avatar name={member.fullName} size="xl" className="mx-auto mb-4" />
+            <Avatar src={member.avatar} name={member.fullName} size="xl" className="mx-auto mb-4" />
             <h2 className="text-xl font-bold text-slate-900">{member.fullName}</h2>
             <p className="text-sm text-slate-500 mt-1">{member.classOrDepartment}</p>
             <Badge variant={getStatusVariant(member.status)} className="mt-3">

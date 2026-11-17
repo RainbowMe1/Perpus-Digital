@@ -14,8 +14,9 @@ import { Pagination } from '@/components/ui/pagination';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useAppState, useToast, useRole } from '@/lib/context';
 import { getStatusVariant } from '@/lib/utils';
+import { getSupabaseClient } from '@/lib/supabase';
 import type { Member, MemberDirectoryEntry } from '@/lib/types';
-import { Search, Plus, Eye, Edit2, UserCheck, Users, GraduationCap } from 'lucide-react';
+import { Search, Plus, Eye, Edit2, KeyRound, UserCheck, Users, GraduationCap } from 'lucide-react';
 import Link from 'next/link';
 
 function isDetailedMember(member: Member | MemberDirectoryEntry): member is Member {
@@ -24,51 +25,130 @@ function isDetailedMember(member: Member | MemberDirectoryEntry): member is Memb
 
 export default function MembersPage() {
   const {
-    members, memberDirectory, memberDirectoryError, addMember, updateMember,
+    members, memberDirectory, memberDirectoryError, refreshData, updateMember,
     totalMemberCount, totalMemberCountError,
   } = useAppState();
   const { toast } = useToast();
-  const { currentRole } = useRole();
+  const { currentRole, currentUser } = useRole();
   const isLibraryStaff = currentRole === 'admin' || currentRole === 'librarian' || currentRole === 'staff';
+  const canManagePasswords = ['admin', 'librarian', 'teacher', 'staff'].includes(currentRole ?? '');
   const visibleMembers = isLibraryStaff ? members : memberDirectory;
   const displayedMemberCount = totalMemberCount ?? (isLibraryStaff ? members.length : null);
+  const ownMemberId = members.find(member => member.userId === currentUser?.id)?.id;
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [updatingPassword, setUpdatingPassword] = useState(false);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const selectedMember = members.find(member => member.id === selectedMemberId);
+  const selectedMemberName = selectedMember?.fullName ?? memberDirectory.find(member => member.id === selectedMemberId)?.fullName;
+  const [newMemberPassword, setNewMemberPassword] = useState('');
+  const [confirmMemberPassword, setConfirmMemberPassword] = useState('');
   const [memberForm, setMemberForm] = useState({
     fullName: '',
     category: 'student' as 'student' | 'teacher' | 'staff',
     classOrDepartment: '',
     email: '',
     phone: '',
+    password: '',
   });
   const itemsPerPage = 10;
-
-  const handleAddMember = async () => {
-    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(memberForm.email.trim());
-    if (!memberForm.fullName.trim() || !memberForm.classOrDepartment.trim() || !validEmail || !memberForm.phone.trim()) {
-      toast('error', 'Data anggota belum lengkap', 'Lengkapi seluruh kolom sebelum menyimpan.');
+  const handleMemberPasswordChange = async () => {
+    if (!selectedMemberId || newMemberPassword.length < 8) {
+      toast('error', 'Kata sandi belum valid', 'Gunakan minimal 8 karakter.');
+      return;
+    }
+    if (newMemberPassword !== confirmMemberPassword) {
+      toast('error', 'Konfirmasi tidak cocok', 'Pastikan kata sandi baru dan konfirmasi sama.');
       return;
     }
 
+    setUpdatingPassword(true);
     try {
-      await addMember({
-        fullName: memberForm.fullName.trim(),
-        category: memberForm.category,
-        classOrDepartment: memberForm.classOrDepartment.trim(),
-        email: memberForm.email.trim(),
-        phone: memberForm.phone.trim(),
+      const { data: { session }, error: sessionError } = await getSupabaseClient().auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session) throw new Error('Sesi login tidak ditemukan. Silakan masuk kembali.');
+
+      const response = await fetch('/api/admin/members', {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ memberId: selectedMemberId, password: newMemberPassword }),
       });
-      toast('success', 'Anggota berhasil ditambahkan');
-      setShowAddModal(false);
-      setMemberForm({ fullName: '', category: 'student', classOrDepartment: '', email: '', phone: '' });
+      const result: unknown = await response.json();
+      if (!response.ok) {
+        const message = typeof result === 'object' && result !== null && 'error' in result &&
+          typeof result.error === 'string'
+          ? result.error
+          : 'Gagal mengubah kata sandi.';
+        throw new Error(message);
+      }
+
+      toast('success', 'Kata sandi anggota berhasil diubah', selectedMemberName);
+      setShowPasswordModal(false);
+      setNewMemberPassword('');
+      setConfirmMemberPassword('');
+      setSelectedMemberId(null);
     } catch (error) {
-      toast('error', 'Gagal menambahkan anggota', error instanceof Error ? error.message : 'Coba lagi.');
+      toast('error', 'Gagal mengubah kata sandi', error instanceof Error ? error.message : 'Coba lagi.');
+    } finally {
+      setUpdatingPassword(false);
+    }
+  };
+
+  const handleAddMember = async () => {
+    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(memberForm.email.trim());
+    if (!memberForm.fullName.trim() || !memberForm.classOrDepartment.trim() || !validEmail || !memberForm.phone.trim() || memberForm.password.length < 8) {
+      toast('error', 'Data anggota belum lengkap', 'Lengkapi seluruh kolom dan gunakan kata sandi minimal 8 karakter.');
+      return;
+    }
+
+    setCreatingAccount(true);
+    try {
+      const { data: { session }, error: sessionError } = await getSupabaseClient().auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session) throw new Error('Sesi login tidak ditemukan. Silakan masuk kembali.');
+
+      const response = await fetch('/api/admin/members', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fullName: memberForm.fullName.trim(),
+          category: memberForm.category,
+          classOrDepartment: memberForm.classOrDepartment.trim(),
+          email: memberForm.email.trim(),
+          phone: memberForm.phone.trim(),
+          password: memberForm.password,
+        }),
+      });
+      const result: unknown = await response.json();
+      if (!response.ok) {
+        const message = typeof result === 'object' && result !== null && 'error' in result &&
+          typeof result.error === 'string'
+          ? result.error
+          : 'Gagal membuat akun anggota.';
+        throw new Error(message);
+      }
+
+      await refreshData();
+      toast('success', 'Akun anggota berhasil dibuat', 'Anggota dapat masuk menggunakan email dan kata sandi. Akun menunggu persetujuan admin.');
+      setShowAddModal(false);
+      setMemberForm({ fullName: '', category: 'student', classOrDepartment: '', email: '', phone: '', password: '' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Coba lagi.';
+      toast('error', 'Gagal membuat akun anggota', message);
+    } finally {
+      setCreatingAccount(false);
     }
   };
 
@@ -82,6 +162,7 @@ export default function MembersPage() {
       classOrDepartment: member.classOrDepartment,
       email: member.email,
       phone: member.phone,
+      password: '',
     });
     setEditStatus(member.status);
     setShowEditModal(true);
@@ -269,7 +350,7 @@ export default function MembersPage() {
                 {isLibraryStaff && <TableHead>Kontak</TableHead>}
                 {isLibraryStaff && <TableHead>Peminjaman</TableHead>}
                 {isLibraryStaff && <TableHead>Status</TableHead>}
-                {isLibraryStaff && <TableHead className="text-right">Aksi</TableHead>}
+                {canManagePasswords && <TableHead className="text-right">Aksi</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -277,7 +358,7 @@ export default function MembersPage() {
                 <TableRow key={member.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <Avatar name={member.fullName} size="sm" />
+                      <Avatar src={member.avatar} name={member.fullName} size="sm" />
                       <div>
                         <p className="font-medium text-slate-900">{member.fullName}</p>
                         {isLibraryStaff && isDetailedMember(member) && <p className="text-xs text-slate-500">{member.email}</p>}
@@ -307,14 +388,46 @@ export default function MembersPage() {
                       {member.status === 'active' ? 'Aktif' : member.status === 'suspended' ? 'Ditangguhkan' : 'Tidak Aktif'}
                     </Badge>
                   </TableCell>}
-                  {isLibraryStaff && <TableCell>
+                  {canManagePasswords && <TableCell>
                     <div className="flex items-center justify-end gap-1">
-                      <Link href={`/members/${member.id}`}>
+                      {isLibraryStaff && <Link href={`/members/${member.id}`}>
                         <button className="p-1.5 rounded hover:bg-slate-100 text-slate-600">
                           <Eye className="w-4 h-4" />
                         </button>
-                      </Link>
-                      {(currentRole === 'admin' || currentRole === 'librarian' || currentRole === 'staff') && (
+                      </Link>}
+                      {canManagePasswords && member.id !== ownMemberId && isDetailedMember(member) && member.userId && (
+                        <button
+                          type="button"
+                          aria-label={`Ganti kata sandi ${member.fullName}`}
+                          title="Ganti kata sandi"
+                          onClick={() => {
+                            setSelectedMemberId(member.id);
+                            setNewMemberPassword('');
+                            setConfirmMemberPassword('');
+                            setShowPasswordModal(true);
+                          }}
+                          className="p-1.5 rounded hover:bg-slate-100 text-slate-600"
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </button>
+                      )}
+                      {canManagePasswords && !isDetailedMember(member) && member.id !== ownMemberId && (
+                        <button
+                          type="button"
+                          aria-label={`Ganti kata sandi ${member.fullName}`}
+                          title="Ganti kata sandi"
+                          onClick={() => {
+                            setSelectedMemberId(member.id);
+                            setNewMemberPassword('');
+                            setConfirmMemberPassword('');
+                            setShowPasswordModal(true);
+                          }}
+                          className="p-1.5 rounded hover:bg-slate-100 text-slate-600"
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </button>
+                      )}
+                      {isLibraryStaff && (
                         <button
                           onClick={() => openEditModal(member.id)}
                           className="p-1.5 rounded hover:bg-slate-100 text-slate-600"
@@ -347,7 +460,7 @@ export default function MembersPage() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowAddModal(false)}>Batal</Button>
-            <Button onClick={() => void handleAddMember()}>Simpan</Button>
+            <Button onClick={() => void handleAddMember()} loading={creatingAccount}>Buat Akun</Button>
           </>
         }
       >
@@ -373,6 +486,70 @@ export default function MembersPage() {
           <Input label="Kelas / Departemen" placeholder="XII IPA 1" required value={memberForm.classOrDepartment} onChange={event => setMemberForm(previous => ({ ...previous, classOrDepartment: event.target.value }))} />
           <Input label="Email" type="email" placeholder="email@example.com" required value={memberForm.email} onChange={event => setMemberForm(previous => ({ ...previous, email: event.target.value }))} />
           <Input label="No. Telepon" placeholder="08xxxxxxxxxx" required value={memberForm.phone} onChange={event => setMemberForm(previous => ({ ...previous, phone: event.target.value }))} />
+          <div className="md:col-span-2">
+            <Input
+              label="Kata sandi akun (minimal 8 karakter)"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              required
+              value={memberForm.password}
+              onChange={event => setMemberForm(previous => ({ ...previous, password: event.target.value }))}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Akun akan dibuat tanpa email verifikasi dan menunggu persetujuan admin. Berikan kata sandi ini kepada anggota dengan aman.
+            </p>
+          </div>
+        </div>
+      </Modal>
+      <Modal
+        isOpen={showPasswordModal}
+        onClose={() => {
+          if (updatingPassword) return;
+          setShowPasswordModal(false);
+          setSelectedMemberId(null);
+          setNewMemberPassword('');
+          setConfirmMemberPassword('');
+        }}
+        title={`Ganti Kata Sandi${selectedMemberName ? ` — ${selectedMemberName}` : ''}`}
+        footer={
+          <>
+            <Button
+              variant="outline"
+              disabled={updatingPassword}
+              onClick={() => {
+                setShowPasswordModal(false);
+                setSelectedMemberId(null);
+                setNewMemberPassword('');
+                setConfirmMemberPassword('');
+              }}
+            >
+              Batal
+            </Button>
+            <Button loading={updatingPassword} onClick={() => void handleMemberPasswordChange()}>Simpan Kata Sandi</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            label="Kata sandi baru (minimal 8 karakter)"
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            required
+            value={newMemberPassword}
+            onChange={event => setNewMemberPassword(event.target.value)}
+          />
+          <Input
+            label="Ulangi kata sandi baru"
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            required
+            value={confirmMemberPassword}
+            onChange={event => setConfirmMemberPassword(event.target.value)}
+          />
+          <p className="text-xs text-slate-500">Sampaikan kata sandi baru kepada anggota secara pribadi.</p>
         </div>
       </Modal>
       <Modal

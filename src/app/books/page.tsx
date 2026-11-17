@@ -45,7 +45,7 @@ export default function BooksPage() {
     publicationYear: String(new Date().getFullYear()),
     category: 'Fiksi',
     description: '',
-    coverImage: '',
+    coverFile: null as File | null,
     totalStock: '1',
     shelfLocation: '',
     isDigital: false,
@@ -65,6 +65,32 @@ export default function BooksPage() {
     });
     if (error) throw error;
     return path;
+  };
+
+  const uploadBookCover = async (file: File) => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 3 * 1024 * 1024) {
+      throw new Error('Sampul harus berupa gambar JPG, PNG, atau WebP dengan ukuran maksimal 3 MB.');
+    }
+    const extension = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+    const path = `${crypto.randomUUID()}.${extension}`;
+    const { error } = await getSupabaseClient().storage.from('book-covers').upload(path, file, {
+      cacheControl: '3600',
+      contentType: file.type,
+      upsert: false,
+    });
+    if (error) throw error;
+    return path;
+  };
+
+  const getStoredCoverPath = (coverImage: string) => {
+    const marker = '/storage/v1/object/public/book-covers/';
+    const markerIndex = coverImage.indexOf(marker);
+    if (markerIndex >= 0) {
+      return decodeURIComponent(coverImage.slice(markerIndex + marker.length).split('?')[0]);
+    }
+    return !/^[a-z][a-z\d+.-]*:/i.test(coverImage) && !coverImage.startsWith('/')
+      ? coverImage
+      : undefined;
   };
 
   const categories = useMemo(() => {
@@ -103,6 +129,11 @@ export default function BooksPage() {
       try {
         const book = books.find(item => item.id === selectedBook);
         await deleteBook(selectedBook);
+        const coverPath = book ? getStoredCoverPath(book.coverImage) : undefined;
+        if (coverPath) {
+          const { error: cleanupError } = await getSupabaseClient().storage.from('book-covers').remove([coverPath]);
+          if (cleanupError) toast('error', 'Buku dihapus, tetapi sampul gagal dihapus', cleanupError.message);
+        }
         if (book?.digitalFileUrl && !/^https?:\/\//i.test(book.digitalFileUrl)) {
           const { error: cleanupError } = await getSupabaseClient().storage.from('ebooks').remove([book.digitalFileUrl]);
           if (cleanupError) toast('error', 'Buku dihapus, tetapi file PDF gagal dihapus', cleanupError.message);
@@ -126,6 +157,7 @@ export default function BooksPage() {
     }
 
     let uploadedPath: string | undefined;
+    let uploadedCoverPath: string | undefined;
     try {
       if (bookForm.isDigital && (!Number.isInteger(pageCount) || pageCount < 1)) {
         throw new Error('Jumlah halaman e-book harus diisi dengan angka positif.');
@@ -133,6 +165,7 @@ export default function BooksPage() {
       if (bookForm.isDigital && !bookForm.digitalFile) {
         throw new Error('Pilih file PDF untuk e-book.');
       }
+      if (bookForm.coverFile) uploadedCoverPath = await uploadBookCover(bookForm.coverFile);
       if (bookForm.isDigital && bookForm.digitalFile) {
         uploadedPath = await uploadDigitalFile(bookForm.digitalFile);
       }
@@ -145,7 +178,7 @@ export default function BooksPage() {
         publicationYear,
         category: bookForm.category,
         description: bookForm.description.trim(),
-        coverImage: bookForm.coverImage.trim(),
+        coverImage: uploadedCoverPath ?? '',
         totalStock: stock,
         availableStock: stock,
         shelfLocation: bookForm.shelfLocation.trim(),
@@ -166,7 +199,7 @@ export default function BooksPage() {
         publicationYear: String(new Date().getFullYear()),
         category: 'Fiksi',
         description: '',
-        coverImage: '',
+        coverFile: null,
         totalStock: '1',
         shelfLocation: '',
         isDigital: false,
@@ -174,12 +207,18 @@ export default function BooksPage() {
         pageCount: '',
       });
     } catch (error) {
+      const cleanupErrors: string[] = [];
       if (uploadedPath) {
         const { error: cleanupError } = await getSupabaseClient().storage.from('ebooks').remove([uploadedPath]);
-        if (cleanupError) {
-          toast('error', 'Gagal menyimpan buku dan membersihkan file', cleanupError.message);
-          return;
-        }
+        if (cleanupError) cleanupErrors.push(cleanupError.message);
+      }
+      if (uploadedCoverPath) {
+        const { error: cleanupError } = await getSupabaseClient().storage.from('book-covers').remove([uploadedCoverPath]);
+        if (cleanupError) cleanupErrors.push(cleanupError.message);
+      }
+      if (cleanupErrors.length) {
+        toast('error', 'Gagal menyimpan buku dan membersihkan file', cleanupErrors.join(' '));
+        return;
       }
       toast('error', 'Gagal menambahkan buku', error instanceof Error ? error.message : 'Coba lagi.');
     }
@@ -204,6 +243,7 @@ export default function BooksPage() {
     }
 
     let uploadedPath: string | undefined;
+    let uploadedCoverPath: string | undefined;
     try {
       if (bookForm.isDigital && (!Number.isInteger(pageCount) || pageCount < 1)) {
         throw new Error('Jumlah halaman e-book harus diisi dengan angka positif.');
@@ -211,6 +251,7 @@ export default function BooksPage() {
       if (bookForm.isDigital && !bookForm.digitalFile && !book.digitalFileUrl) {
         throw new Error('Pilih file PDF untuk e-book.');
       }
+      if (bookForm.coverFile) uploadedCoverPath = await uploadBookCover(bookForm.coverFile);
       if (bookForm.isDigital && bookForm.digitalFile) {
         uploadedPath = await uploadDigitalFile(bookForm.digitalFile);
       }
@@ -223,7 +264,7 @@ export default function BooksPage() {
         publicationYear,
         category: bookForm.category,
         description: bookForm.description.trim(),
-        coverImage: bookForm.coverImage.trim(),
+        coverImage: uploadedCoverPath ?? getStoredCoverPath(book.coverImage) ?? book.coverImage,
         totalStock: stock,
         availableStock: stock - borrowedStock,
         shelfLocation: bookForm.shelfLocation.trim(),
@@ -231,6 +272,11 @@ export default function BooksPage() {
         digitalFileUrl: uploadedPath ?? (bookForm.isDigital ? book.digitalFileUrl : undefined),
         pageCount: bookForm.isDigital ? pageCount : undefined,
       });
+      const oldCoverPath = getStoredCoverPath(book.coverImage);
+      if (oldCoverPath && uploadedCoverPath) {
+        const { error: cleanupError } = await getSupabaseClient().storage.from('book-covers').remove([oldCoverPath]);
+        if (cleanupError) toast('error', 'Buku diperbarui, tetapi sampul lama gagal dihapus', cleanupError.message);
+      }
       if (book.digitalFileUrl && !/^https?:\/\//i.test(book.digitalFileUrl) && (uploadedPath || !bookForm.isDigital)) {
         const { error: cleanupError } = await getSupabaseClient().storage.from('ebooks').remove([book.digitalFileUrl]);
         if (cleanupError) toast('error', 'Buku diperbarui, tetapi file PDF lama gagal dihapus', cleanupError.message);
@@ -239,12 +285,18 @@ export default function BooksPage() {
       setShowEditModal(false);
       setSelectedBook(null);
     } catch (error) {
+      const cleanupErrors: string[] = [];
       if (uploadedPath) {
         const { error: cleanupError } = await getSupabaseClient().storage.from('ebooks').remove([uploadedPath]);
-        if (cleanupError) {
-          toast('error', 'Gagal menyimpan perubahan dan membersihkan file', cleanupError.message);
-          return;
-        }
+        if (cleanupError) cleanupErrors.push(cleanupError.message);
+      }
+      if (uploadedCoverPath) {
+        const { error: cleanupError } = await getSupabaseClient().storage.from('book-covers').remove([uploadedCoverPath]);
+        if (cleanupError) cleanupErrors.push(cleanupError.message);
+      }
+      if (cleanupErrors.length) {
+        toast('error', 'Gagal menyimpan perubahan dan membersihkan file', cleanupErrors.join(' '));
+        return;
       }
       toast('error', 'Gagal memperbarui buku', error instanceof Error ? error.message : 'Coba lagi.');
     }
@@ -263,7 +315,7 @@ export default function BooksPage() {
       publicationYear: String(book.publicationYear),
       category: book.category,
       description: book.description,
-      coverImage: book.coverImage,
+      coverFile: null,
       totalStock: String(book.totalStock),
       shelfLocation: book.shelfLocation,
       isDigital: book.isDigital,
@@ -493,9 +545,16 @@ export default function BooksPage() {
               </label>
             </>
           )}
-          <div className="md:col-span-2">
-            <Input label="URL sampul (opsional)" type="url" placeholder="https://..." value={bookForm.coverImage} onChange={event => setBookForm(previous => ({ ...previous, coverImage: event.target.value }))} />
-          </div>
+          <label className="md:col-span-2 block text-sm font-medium text-slate-700">
+            Foto sampul buku (opsional, JPG/PNG/WebP maks. 3 MB)
+            {bookForm.coverFile && <span className="ml-1 font-normal text-slate-500">— {bookForm.coverFile.name}</span>}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={event => setBookForm(previous => ({ ...previous, coverFile: event.target.files?.[0] ?? null }))}
+              className="mt-1.5 block w-full text-sm"
+            />
+          </label>
           <div className="md:col-span-2">
             <Textarea label="Deskripsi" placeholder="Deskripsi buku" value={bookForm.description} onChange={event => setBookForm(previous => ({ ...previous, description: event.target.value }))} />
           </div>
@@ -546,7 +605,23 @@ export default function BooksPage() {
             </>
           )}
           <div className="md:col-span-2">
-            <Input label="URL sampul (opsional)" type="url" value={bookForm.coverImage} onChange={event => setBookForm(previous => ({ ...previous, coverImage: event.target.value }))} />
+            <label className="block text-sm font-medium text-slate-700">
+              Ganti foto sampul (opsional, JPG/PNG/WebP maks. 3 MB)
+              {bookForm.coverFile && <span className="ml-1 font-normal text-slate-500">— {bookForm.coverFile.name}</span>}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={event => setBookForm(previous => ({ ...previous, coverFile: event.target.files?.[0] ?? null }))}
+                className="mt-1.5 block w-full text-sm"
+              />
+            </label>
+            <div className="mt-3">
+              <BookCover
+                src={books.find(book => book.id === selectedBook)?.coverImage}
+                alt="Sampul buku saat ini"
+                className="h-28 w-20 rounded object-cover"
+              />
+            </div>
             <Textarea className="mt-4" label="Deskripsi" value={bookForm.description} onChange={event => setBookForm(previous => ({ ...previous, description: event.target.value }))} />
           </div>
         </div>

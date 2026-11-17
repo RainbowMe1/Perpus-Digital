@@ -84,8 +84,11 @@ laporan dihitung dari transaksi yang dapat diakses akun yang sedang masuk.
 
 ## Supabase
 
-1. Salin `.env.local.example` menjadi `.env.local`, lalu isi URL proyek dan
-   anon/publishable key dari **Project Settings → API**.
+1. Salin `.env.local.example` menjadi `.env.local`, lalu isi URL proyek,
+   anon/publishable key, dan `SUPABASE_SERVICE_ROLE_KEY` dari **Project Settings → API**.
+   Service role key hanya dipakai server untuk membuat akun dan mereset kata sandi
+   anggota; jangan
+   pernah menambahkan awalan `NEXT_PUBLIC_` atau membagikan key tersebut.
 2. Jika project masih kosong, jalankan `supabase/schema.sql` terlebih dahulu.
    Untuk project yang sudah memiliki tabel inti, jangan jalankan ulang file itu.
 3. Jalankan `supabase/stage2.sql` di SQL Editor pada project existing. Migrasi
@@ -97,9 +100,11 @@ laporan dihitung dari transaksi yang dapat diakses akun yang sedang masuk.
    anggota tanpa membuka data pribadi anggota lain.
 6. Jalankan `supabase/stage5.sql` untuk mengaktifkan akses operasional staf,
    direktori anggota read-only, dan penyimpanan foto profil.
-7. Di **Authentication → URL Configuration**, tambahkan URL aplikasi
+7. Jalankan `supabase/stage6.sql` untuk mengaktifkan sampul buku hasil upload
+   dan menampilkan foto profil pada direktori anggota.
+8. Di **Authentication → URL Configuration**, tambahkan URL aplikasi
    (misalnya `http://localhost:3000/login`) ke daftar URL redirect yang diizinkan.
-8. Buat akun pertama lewat halaman **Daftar**, lalu jadikan akun tersebut admin
+9. Buat akun pertama lewat halaman **Daftar**, lalu jadikan akun tersebut admin
    melalui SQL Editor:
 
    ```sql
@@ -126,6 +131,9 @@ aplikasi membuat signed URL sementara saat membaca/mengunduh. E-reader mencatat
 halaman yang dibuka dan menyimpan progres secara otomatis. Email notifikasi
 memerlukan penyedia email yang dikonfigurasi terpisah. Ekspor pengaturan adalah
 JSON lokal, bukan backup penuh database; restore belum tersedia.
+Pengguna dapat mengganti kata sandinya sendiri melalui **Pengaturan → Profil Akun**.
+Admin, pustakawan, guru, dan staf dapat mengatur ulang kata sandi akun anggota
+melalui ikon kunci pada tab **Anggota**.
 
 ## Deploy ke Vercel
 
@@ -133,10 +141,11 @@ JSON lokal, bukan backup penuh database; restore belum tersedia.
    `.gitignore`; jangan commit atau membagikan file tersebut.
 2. Di Vercel, pilih **Add New → Project**, lalu import repository GitHub itu.
    Vercel akan mendeteksi Next.js secara otomatis; gunakan `npm run build`.
-3. Tambahkan `NEXT_PUBLIC_SUPABASE_URL` dan `NEXT_PUBLIC_SUPABASE_ANON_KEY` pada
-   **Project Settings → Environment Variables** untuk Production (dan Preview
-   bila diperlukan). Gunakan URL proyek serta anon/publishable key dari Supabase;
-   jangan masukkan `service_role` key.
+3. Tambahkan `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, dan
+   `SUPABASE_SERVICE_ROLE_KEY` pada **Project Settings → Environment Variables**
+   untuk Production (dan Preview bila diperlukan). Service role key digunakan
+   hanya oleh endpoint server untuk pembuatan akun; jangan beri awalan
+   `NEXT_PUBLIC_` atau masukkan key ke kode browser.
 4. Deploy. Setelah mendapat domain, tambahkan domain produksi ke Supabase pada
    **Authentication → URL Configuration** sebagai Site URL dan URL redirect
    yang diizinkan, misalnya `https://nama-proyek.vercel.app/login`.

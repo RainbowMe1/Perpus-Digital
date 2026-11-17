@@ -76,7 +76,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1 overflow-y-auto scrollbar-thin">
+      <nav className="min-h-0 flex-1 p-4 space-y-1 overflow-y-auto overscroll-contain scrollbar-thin">
         {filteredItems.map((item) => {
           const Icon = item.icon;
           const active = isActive(item.href);
@@ -140,7 +140,7 @@ export function Sidebar() {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <div id="mobile-sidebar" className="absolute left-0 top-0 bottom-0 w-72 bg-navy-900">
+          <div id="mobile-sidebar" className="absolute left-0 top-0 bottom-0 flex w-72 flex-col overflow-hidden bg-navy-900">
             <button
               onClick={() => setMobileOpen(false)}
               aria-label="Tutup navigasi"

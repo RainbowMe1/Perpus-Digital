@@ -172,6 +172,7 @@ export interface Database {
           full_name: string;
           member_number: string;
           category: 'student' | 'teacher' | 'staff';
+          avatar: string | null;
         }[];
       };
       get_total_member_count: { Args: Record<PropertyKey, never>; Returns: number };

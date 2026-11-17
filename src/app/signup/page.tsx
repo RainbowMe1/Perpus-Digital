@@ -50,7 +50,10 @@ export default function SignupPage() {
         setConfirmationMessage('Pendaftaran diterima. Verifikasi email Anda; setelah itu admin akan meninjau permintaan akun.');
       }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Pendaftaran gagal. Coba lagi.');
+      const message = error instanceof Error ? error.message : 'Pendaftaran gagal. Coba lagi.';
+      setErrorMessage(/rate limit|too many requests/i.test(message)
+        ? 'Supabase sedang membatasi pengiriman email pendaftaran. Minta staf membuat akun dari tab Anggota, atau coba lagi nanti.'
+        : message);
     } finally {
       setLoading(false);
     }

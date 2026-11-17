@@ -51,6 +51,7 @@ export interface MemberDirectoryEntry {
   fullName: string;
   memberNumber: string;
   category: 'student' | 'teacher' | 'staff';
+  avatar?: string;
 }
 
 export interface BorrowingTransaction {

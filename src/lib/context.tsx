@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { AlertTriangle, Check, Info, X } from 'lucide-react';
 import {
   UserRole, User, Book, Member, BorrowingTransaction, Notification,
   Reservation, Review, Fine, Procurement, LibrarySettings, MemberDirectoryEntry,
@@ -15,6 +16,12 @@ function getAvatarUrl(path?: string | null) {
   if (/^https?:\/\//i.test(path)) return path;
   const publicUrl = getSupabaseClient().storage.from('avatars').getPublicUrl(path).data.publicUrl;
   return `${publicUrl}?v=${Date.now()}`;
+}
+
+function getBookCoverUrl(path?: string | null) {
+  if (!path) return DEFAULT_BOOK_COVER;
+  if (/^[a-z][a-z\d+.-]*:/i.test(path) || path.startsWith('/')) return path;
+  return getSupabaseClient().storage.from('book-covers').getPublicUrl(path).data.publicUrl;
 }
 
 // ============================================================================
@@ -203,7 +210,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      <div className="fixed top-4 right-4 z-[100] space-y-2 max-w-sm pointer-events-none">
+      <div className="fixed top-20 right-2 sm:right-4 z-[100] w-[calc(100vw-1rem)] max-w-sm space-y-2 pointer-events-none">
         {toasts.map((t) => (
           <ToastItem key={t.id} toast={t} onClose={() => removeToast(t.id)} />
         ))}
@@ -214,10 +221,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
   const icons = {
-    success: 'âœ“',
-    error: 'âœ•',
-    warning: 'âš ',
-    info: 'â„¹',
+    success: Check,
+    error: X,
+    warning: AlertTriangle,
+    info: Info,
   };
   const colors = {
     success: 'bg-emerald-50 border-emerald-200 text-emerald-700',
@@ -225,18 +232,19 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
     warning: 'bg-amber-50 border-amber-200 text-amber-700',
     info: 'bg-blue-50 border-blue-200 text-blue-700',
   };
+  const Icon = icons[toast.type];
 
   return (
     <div className={`pointer-events-auto border rounded-lg shadow-lg p-4 flex items-start gap-3 animate-slide-in ${colors[toast.type]}`}>
       <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center font-bold text-sm flex-shrink-0">
-        {icons[toast.type]}
+        <Icon className="w-4 h-4" aria-hidden="true" />
       </div>
       <div className="flex-1 min-w-0">
         <p className="font-medium text-sm">{toast.title}</p>
         {toast.message && <p className="text-xs opacity-80 mt-0.5">{toast.message}</p>}
       </div>
-      <button onClick={onClose} className="opacity-60 hover:opacity-100 flex-shrink-0">
-        âœ•
+      <button type="button" onClick={onClose} aria-label="Tutup notifikasi" className="opacity-60 hover:opacity-100 flex-shrink-0">
+        <X className="w-4 h-4" aria-hidden="true" />
       </button>
     </div>
   );
@@ -273,7 +281,6 @@ interface AppStateContextType {
   addBook: (book: Omit<Book, 'id'>) => Promise<void>;
   updateBook: (id: string, book: Partial<Book>) => Promise<void>;
   deleteBook: (id: string) => Promise<void>;
-  addMember: (member: Pick<Member, 'fullName' | 'category' | 'classOrDepartment' | 'email' | 'phone'>) => Promise<void>;
   updateMember: (id: string, member: Partial<Member>) => Promise<void>;
   addTransaction: (transaction: Pick<BorrowingTransaction, 'memberId' | 'books' | 'borrowingDate' | 'dueDate'>) => Promise<void>;
   updateTransaction: (id: string, transaction: Partial<BorrowingTransaction>) => Promise<void>;
@@ -374,6 +381,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           fullName: member.full_name,
           memberNumber: member.member_number,
           category: member.category,
+          avatar: getAvatarUrl(member.avatar),
         })));
         setMemberDirectoryError(null);
       }
@@ -393,7 +401,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         publicationYear: book.publication_year,
         category: book.category,
         description: book.description,
-        coverImage: book.cover_image?.trim() || DEFAULT_BOOK_COVER,
+        coverImage: getBookCoverUrl(book.cover_image?.trim()),
         totalStock: book.total_stock,
         availableStock: book.available_stock,
         shelfLocation: book.shelf_location,
@@ -425,7 +433,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           bookId: book.book_id,
           title: book.title,
           bookCode: book.book_code,
-          coverImage: book.cover_image?.trim() || DEFAULT_BOOK_COVER,
+          coverImage: getBookCoverUrl(book.cover_image?.trim()),
         });
         booksByTransaction.set(book.transaction_id, transactionBooks);
       }
@@ -627,32 +635,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     const { error } = await getSupabaseClient().from('books').delete().eq('id', id);
     if (error) throw error;
     setBooks(previous => previous.filter(book => book.id !== id));
-  };
-
-  const addMember = async (member: Pick<Member, 'fullName' | 'category' | 'classOrDepartment' | 'email' | 'phone'>) => {
-    const { data, error } = await getSupabaseClient().from('members').insert({
-      full_name: member.fullName,
-      category: member.category,
-      class_or_department: member.classOrDepartment,
-      email: member.email,
-      phone: member.phone,
-    }).select('*').single();
-    if (error) throw error;
-    setMembers(previous => [{
-      id: data.id,
-      userId: data.user_id ?? undefined,
-      fullName: data.full_name,
-      memberNumber: data.member_number,
-      category: data.category,
-      classOrDepartment: data.class_or_department,
-      email: data.email,
-      phone: data.phone,
-      registrationDate: data.registration_date,
-      status: data.status,
-      avatar: data.avatar ?? undefined,
-      activeLoans: data.active_loans,
-      totalBorrowed: data.total_borrowed,
-    }, ...previous]);
   };
 
   const updateMember = async (id: string, updates: Partial<Member>) => {
@@ -923,7 +905,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       wishlistBookIds, librarySettings, readingProgress, totalMemberCount, totalMemberCountError,
       dataLoading, dataError, refreshData,
       addBook, updateBook, deleteBook,
-      addMember, updateMember,
+      updateMember,
       addTransaction, updateTransaction, returnTransaction,
       addReservation, cancelReservation, setReservationStatus, addReview,
       addToWishlist, removeFromWishlist, setFineStatus,

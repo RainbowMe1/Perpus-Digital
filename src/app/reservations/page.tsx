@@ -14,6 +14,20 @@ import { useAppState, useRole, useToast } from '@/lib/context';
 import { formatShortDate, getStatusVariant, getStatusLabel } from '@/lib/utils';
 import { Calendar, X, Check, Clock, Plus } from 'lucide-react';
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string' &&
+    error.message.trim()
+  ) {
+    return error.message;
+  }
+  return 'Coba lagi.';
+}
+
 export default function ReservationsPage() {
   const { reservations, books, addReservation, cancelReservation, setReservationStatus } = useAppState();
   const { currentRole } = useRole();
@@ -24,6 +38,8 @@ export default function ReservationsPage() {
   const [saving, setSaving] = useState(false);
   const isStaff = currentRole === 'admin' || currentRole === 'librarian' || currentRole === 'staff';
   const availableForReservation = books.filter(book => book.availableStock === 0);
+  const isBookAvailable = (bookId: string) =>
+    books.some(book => book.id === bookId && book.availableStock > 0);
 
   const filteredReservations = activeTab === 'all'
     ? reservations
@@ -41,7 +57,7 @@ export default function ReservationsPage() {
       setShowAddModal(false);
       setSelectedBookId('');
     } catch (error) {
-      toast('error', 'Gagal membuat reservasi', error instanceof Error ? error.message : 'Coba lagi.');
+      toast('error', 'Gagal membuat reservasi', getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -53,7 +69,7 @@ export default function ReservationsPage() {
       else await setReservationStatus(id, action);
       toast('success', action === 'cancelled' ? 'Reservasi dibatalkan' : action === 'ready' ? 'Reservasi ditandai siap' : 'Reservasi ditandai selesai');
     } catch (error) {
-      toast('error', 'Gagal memperbarui reservasi', error instanceof Error ? error.message : 'Coba lagi.');
+      toast('error', 'Gagal memperbarui reservasi', getErrorMessage(error));
     }
   };
 
@@ -101,6 +117,9 @@ export default function ReservationsPage() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-slate-900">{res.memberName}</p>
                     <p className="text-sm text-slate-600 truncate">{res.bookTitle}</p>
+                    {isStaff && res.status === 'pending' && !isBookAvailable(res.bookId) && (
+                      <p className="mt-1 text-xs text-amber-700">Buku belum tersedia untuk diambil.</p>
+                    )}
                     <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                       <span>Reservasi: {formatShortDate(res.reservationDate)}</span>
                       {res.queuePosition && (
@@ -115,7 +134,12 @@ export default function ReservationsPage() {
                     {(res.status === 'pending' || res.status === 'ready') && (
                       <>
                         {isStaff && res.status === 'pending' && (
-                          <Button size="sm" variant="outline" onClick={() => void runReservationAction(res.id, 'ready')}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!isBookAvailable(res.bookId)}
+                            onClick={() => void runReservationAction(res.id, 'ready')}
+                          >
                             <Check className="w-3.5 h-3.5" /> Siap
                           </Button>
                         )}
