@@ -128,7 +128,10 @@ export function Sidebar() {
       {/* Mobile menu button */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-40 p-2 bg-white rounded-lg shadow-md border border-slate-200"
+        aria-label="Buka navigasi"
+        aria-expanded={mobileOpen}
+        aria-controls="mobile-sidebar"
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-md border border-slate-200"
       >
         <BookMarked className="w-5 h-5 text-slate-700" />
       </button>
@@ -137,9 +140,10 @@ export function Sidebar() {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <div className="absolute left-0 top-0 bottom-0 w-72 bg-navy-900">
+          <div id="mobile-sidebar" className="absolute left-0 top-0 bottom-0 w-72 bg-navy-900">
             <button
               onClick={() => setMobileOpen(false)}
+              aria-label="Tutup navigasi"
               className="absolute top-4 right-4 p-1 text-navy-300 hover:text-white"
             >
               <X className="w-5 h-5" />
